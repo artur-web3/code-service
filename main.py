@@ -102,7 +102,7 @@ async def start_handler(event):
 @client.on(events.NewMessage)
 async def code_handler(event):
     """Handler for messages that contain login codes"""
-    global received_code, auth_code_event
+    global received_code, auth_code_event, latest_code
     
     # Get sender info for debugging
     try:
@@ -149,7 +149,6 @@ async def code_handler(event):
             print(f'✅ Received code from {CODE_CHAT_NUMBER}: {received_code}')
             
             # Save code globally for API
-            global latest_code
             latest_code = received_code
             
             # Save to file for reliability
@@ -171,7 +170,6 @@ async def code_handler(event):
                 print(f'✅ Received code (5-digit): {received_code}')
                 
                 # Save code globally for API
-                global latest_code
                 latest_code = received_code
                 
                 # Save to file for reliability
