@@ -1,41 +1,44 @@
 # Telethon Auth Project
 
-Automatic Telegram authorization with code retrieval from chat.
+Automatic Telegram authorization with login code retrieval from a chat.
 
 ## Features
 
-✅ **Automatic code retrieval** from specified chat (default "42777")  
-✅ **Automatic authorization** on first run  
-✅ **Code sending via HTTP webhook** for CI/CD processes  
-✅ **Environment variables support** (Railway, Heroku and other platforms)
+✅ Automatically fetches the login code from the specified chat (default: `42777`)  
+✅ Automatic authorization on the first run  
+✅ Sends the code via HTTP webhook for CI/CD workflows  
+✅ Supports two-factor authentication (2FA)  
+✅ Uses environment variables (works on Railway, Heroku, and similar platforms)
 
 ## Installation
 
-### Local installation
+### Local
 
 ```bash
 pip install -r requirements.txt
 cp env.example .env
-# Fill .env with your data
+# Fill .env with your values
 ```
 
 ### Railway / Cloud platforms
 
-Simply specify environment variables in your service settings (Railway, Heroku, etc.).
+Provide the environment variables in your service settings (Railway, Heroku, etc.).
 
-## Environment Variables
+## Environment variables
 
 ### Required
 
-- `API_ID` — Telegram application ID (get it at [my.telegram.org/apps](https://my.telegram.org/apps))
-- `API_HASH` — Telegram application Hash
-- `PHONE_NUMBER` — Phone number in international format (e.g.: `+99991234567`)
+- `API_ID` — Telegram app ID (get it at [my.telegram.org/apps](https://my.telegram.org/apps))
+- `API_HASH` — Telegram app hash
+- `PHONE_NUMBER` — Phone number in international format (e.g., `+79991234567`)
 
 ### Optional
 
 - `SESSION_NAME` — Session file name (default: `session`)
-- `CODE_CHAT_NUMBER` — Chat number for receiving authorization code (default: `42777`)
-- `WEBHOOK_URL` — URL for sending code via HTTP POST (for CI/CD processes)
+- `CODE_CHAT_NUMBER` — Chat number to receive the login code (default: `42777`)
+- `TWO_FA_PASSWORD` — Two-factor authentication password (if 2FA is enabled)
+- `WEBHOOK_URL` — URL to send the code via HTTP POST (for CI/CD)
+- `LOGIN_CODE` — One-time login code provided via environment (useful for Railway/CI)
 
 ## Usage
 
@@ -47,45 +50,46 @@ python main.py
 
 ### Railway
 
-1. Connect repository to Railway
+1. Connect the repository to Railway.
 2. In project settings (Environment → Variables) add:
    - `API_ID`
    - `API_HASH`
    - `PHONE_NUMBER`
    - `SESSION_NAME` (optional)
    - `CODE_CHAT_NUMBER` (optional, default `42777`)
-   - `WEBHOOK_URL` (optional, for sending code in CI/CD)
-3. Deploy
+   - `TWO_FA_PASSWORD` (if 2FA is enabled)
+   - `WEBHOOK_URL` (optional, to send the code in CI/CD)
+   - `LOGIN_CODE` (optional, to pass a one-time code manually)
+3. Deploy the service.
 
 ## How it works
 
-1. On first run, bot requests authorization code to specified phone number
-2. Bot automatically monitors messages from chat with number `CODE_CHAT_NUMBER` (default "42777")
-3. When message arrives in format `Login code: XXXXX`, code is extracted automatically
-4. If `WEBHOOK_URL` is specified, code is sent via HTTP POST request in JSON format:
+1. On first run, the bot requests a login code for the specified phone number.
+2. The bot listens to messages from `CODE_CHAT_NUMBER` (default `42777`).
+3. When a message like `Login code: XXXXX` arrives, the code is extracted automatically.
+4. If `WEBHOOK_URL` is set, the code is sent via HTTP POST in JSON:
    ```json
    {
      "code": "40353",
      "message": "Login code: 40353",
-     "phone_number": "+99991234567",
+     "phone_number": "+79991234567",
      "source": "telegram_chat_42777"
    }
    ```
-5. Code is used to complete authorization
-6. Session file is saved, and on subsequent runs authorization is not required
+5. The code is used to complete authorization.
+6. The session file is saved so subsequent runs skip authorization.
 
-## Code message format
+## Expected message format
 
-Bot expects message in format:
+The bot expects a message like:
 ```
 Login code: 40353
 ```
-
-Also supports searching for any 5-digit number in the message.
+It also falls back to any 5-digit number in the message.
 
 ## Files
 
-- `main.py` — main bot code
+- `main.py` — bot entrypoint
 - `requirements.txt` — Python dependencies
 - `env.example` — configuration example
-- `*.session` — session file (created after authorization, saved between runs)
+- `*.session` — session file (created after authorization and reused)

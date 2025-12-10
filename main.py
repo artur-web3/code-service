@@ -1,5 +1,5 @@
 """
-Telethon пример - базовая структура проекта
+Telethon example - basic project structure
 """
 import asyncio
 import os
@@ -9,76 +9,85 @@ from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 
-# Загружаем переменные окружения (из .env файла, если есть)
+# Load environment variables (from .env file if present)
 load_dotenv()
 
-# Получаем данные из переменных окружения
-API_ID = os.getenv('API_ID')
+# Fetch and validate environment variables
+API_ID_RAW = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 PHONE_NUMBER = os.getenv('PHONE_NUMBER')
 SESSION_NAME = os.getenv('SESSION_NAME', 'session')
-CODE_CHAT_NUMBER = os.getenv('CODE_CHAT_NUMBER', '42777')  # Номер чата для получения кода
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # URL для отправки кода через HTTP (для CI/CD)
+CODE_CHAT_NUMBER = os.getenv('CODE_CHAT_NUMBER', '42777')  # Chat number to receive the login code
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # URL to send the code via HTTP (for CI/CD)
+LOGIN_CODE = os.getenv('LOGIN_CODE')  # Optional: pass the login code via environment variable
 
-# Валидация обязательных переменных окружения
+if not API_ID_RAW or not API_HASH or not PHONE_NUMBER:
+    raise ValueError("API_ID, API_HASH, and PHONE_NUMBER must be set")
+
+try:
+    API_ID = int(API_ID_RAW)
+except ValueError as exc:
+    raise ValueError(f"API_ID must be an integer, got: {API_ID_RAW}") from exc
+
+# Validate required environment variables
 if not API_ID or not API_HASH:
-    raise ValueError('API_ID и API_HASH должны быть указаны в переменных окружения')
+    raise ValueError('API_ID and API_HASH must be provided in environment variables')
 if not PHONE_NUMBER:
-    raise ValueError('PHONE_NUMBER должен быть указан в переменных окружения')
+    raise ValueError('PHONE_NUMBER must be provided in environment variables')
 
-# Глобальные переменные для авторизации
+# Global variables for authorization
 auth_code_event = asyncio.Event()
 received_code = None
 phone_code_hash = None
 
-# Создаем клиент
+# Create client
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
 
-@client.on(events.NewMessage(pattern='(?i)привет|hello|hi'))
+@client.on(events.NewMessage(pattern='(?i)hello|hi'))
 async def handler(event):
-    """Обработчик новых сообщений"""
-    await event.reply('Привет! Я бот на Telethon!')
+    """New message handler"""
+    await event.reply('Hi! I am a Telethon bot!')
 
 
 @client.on(events.NewMessage(pattern='(?i)/start'))
 async def start_handler(event):
-    """Обработчик команды /start"""
-    await event.reply('Бот запущен и готов к работе!')
+    """Handler for /start command"""
+    await event.reply('Bot is running and ready!')
 
 
 @client.on(events.NewMessage(from_users=CODE_CHAT_NUMBER))
 async def code_handler(event):
-    """Обработчик сообщений из чата с кодом авторизации"""
+    """Handler for messages from the chat that contains the login code"""
     global received_code, auth_code_event
     
     message_text = event.message.text or event.message.message
     
-    # Ищем код в формате "Login code: 40353"
+    # Look for code in the format "Login code: 40353"
     code_match = re.search(r'Login code:\s*(\d{5})', message_text, re.IGNORECASE)
     if code_match:
         received_code = code_match.group(1)
-        print(f'Получен код из чата {CODE_CHAT_NUMBER}: {received_code}')
+        print(f'Received code from chat {CODE_CHAT_NUMBER}: {received_code}')
         
-        # Отправляем код через HTTP для CI/CD
+        # Send code via HTTP for CI/CD
         await send_code_via_webhook(received_code, message_text)
         
         auth_code_event.set()
     else:
-        # Также пробуем найти просто 5-значное число (на случай другого формата)
+        # Fallback: find any 5-digit number
         code_match = re.search(r'\b\d{5}\b', message_text)
         if code_match:
             received_code = code_match.group(0)
-            print(f'Получен код из чата {CODE_CHAT_NUMBER}: {received_code}')
+            print(f'Received code from chat {CODE_CHAT_NUMBER}: {received_code}')
             
-            # Отправляем код через HTTP для CI/CD
+            # Send code via HTTP for CI/CD
             await send_code_via_webhook(received_code, message_text)
             
             auth_code_event.set()
 
 
 async def send_code_via_webhook(code: str, original_message: str):
-    """Отправка кода через HTTP webhook для CI/CD процесса"""
+    """Send the code via HTTP webhook for CI/CD"""
     if not WEBHOOK_URL:
         return
     
@@ -97,18 +106,18 @@ async def send_code_via_webhook(code: str, original_message: str):
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
-                    print(f'✅ Код успешно отправлен на webhook: {code}')
+                    print(f'✅ Code sent to webhook: {code}')
                 else:
                     response_text = await response.text()
-                    print(f'⚠️ Webhook вернул статус {response.status}: {response_text}')
+                    print(f'⚠️ Webhook returned status {response.status}: {response_text}')
     except asyncio.TimeoutError:
-        print(f'⏱️ Таймаут при отправке кода на webhook')
+        print('⏱️ Timeout while sending code to webhook')
     except Exception as e:
-        print(f'❌ Ошибка отправки кода на webhook: {e}')
+        print(f'❌ Error sending code to webhook: {e}')
 
 
 async def wait_for_code(timeout=300):
-    """Ожидание кода из чата с таймаутом"""
+    """Wait for a login code from the chat with timeout"""
     global received_code
     
     try:
@@ -118,68 +127,73 @@ async def wait_for_code(timeout=300):
         auth_code_event.clear()
         return code
     except asyncio.TimeoutError:
-        print(f'Таймаут ожидания кода из чата {CODE_CHAT_NUMBER}')
+        print(f'Timeout while waiting for code from chat {CODE_CHAT_NUMBER}')
         return None
 
 
 async def main():
-    """Основная функция"""
+    """Main entrypoint"""
     global phone_code_hash
     
-    print('Подключение к Telegram...')
+    print('Connecting to Telegram...')
     
     try:
-        # Подключаемся к Telegram
+        # Connect to Telegram
         await client.connect()
         
-        # Проверяем, авторизован ли уже клиент
+        # Check if client is already authorized
         if not await client.is_user_authorized():
-            print(f'Требуется авторизация. Ожидание кода из чата {CODE_CHAT_NUMBER}...')
+            print(f'Authorization required. Waiting for code from chat {CODE_CHAT_NUMBER}...')
             
-            # Запрашиваем код
+            # Request code
             try:
                 sent_code = await client.send_code_request(PHONE_NUMBER)
                 phone_code_hash = sent_code.phone_code_hash
-                print(f'Код отправлен на номер {PHONE_NUMBER}')
-                print(f'Ожидание кода из чата {CODE_CHAT_NUMBER}...')
+                print(f'Code sent to number {PHONE_NUMBER}')
+                print(f'Waiting for code from chat {CODE_CHAT_NUMBER}...')
                 
-                # Ждем код из чата
-                code = await wait_for_code(timeout=300)
+                # If code is provided via LOGIN_CODE env (useful for Railway/CI)
+                if LOGIN_CODE:
+                    code = LOGIN_CODE.strip()
+                    print('Using code from environment variable LOGIN_CODE')
+                else:
+                    # Wait for code from chat
+                    code = await wait_for_code(timeout=300)
                 
                 if not code:
-                    print('Не удалось получить код. Завершение работы.')
+                    print('Failed to receive code. Stopping.')
                     await client.disconnect()
                     return
                 
-                # Пытаемся войти с полученным кодом
+                # Try signing in with received code
                 try:
                     await client.sign_in(PHONE_NUMBER, code, phone_code_hash=phone_code_hash)
-                    print('Успешно авторизован!')
+                    print('Authorized successfully!')
                 except SessionPasswordNeededError:
-                    # Если требуется 2FA пароль
+                    # 2FA password required
                     password = os.getenv('TWO_FA_PASSWORD')
                     if password:
                         await client.sign_in(password=password)
-                        print('Успешно авторизован с 2FA!')
+                        print('Authorized successfully with 2FA!')
                     else:
-                        print('Требуется пароль 2FA. Установите TWO_FA_PASSWORD в переменных окружения')
+                        print('2FA password required. Set TWO_FA_PASSWORD in environment variables')
                         await client.disconnect()
                         return
             except Exception as e:
-                print(f'Ошибка при авторизации: {e}')
+                print(f'Error during authorization: {e}')
                 await client.disconnect()
                 return
         else:
-            print('Уже авторизован!')
+            print('Already authorized!')
         
-        # Получаем информацию о себе
+        # Get account info
         me = await client.get_me()
-        print(f'Вошли как: {me.first_name} {me.last_name or ""} (@{me.username or "без username"})')
+        print(f'Logged in as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
         
-        # Запускаем клиент
+        # Run client
         await client.run_until_disconnected()
     except Exception as e:
-        print(f'Ошибка: {e}')
+        print(f'Error: {e}')
         if client.is_connected():
             await client.disconnect()
 
@@ -188,7 +202,7 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print('\nОстановка бота...')
+        print('\nStopping bot...')
     except Exception as e:
-        print(f'Ошибка: {e}')
+        print(f'Error: {e}')
 
