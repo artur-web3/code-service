@@ -8,6 +8,8 @@ import aiohttp
 from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
+from flask import Flask, request, jsonify
+from threading import Thread
 
 # Load environment variables (from .env file if present)
 load_dotenv()
@@ -40,8 +42,49 @@ auth_code_event = asyncio.Event()
 received_code = None
 phone_code_hash = None
 
+# Global variables for API
+latest_code = None
+code_request_pending = False
+
 # Create client
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+
+# API Server for code requests
+api_app = Flask(__name__)
+
+@api_app.route('/request-code', methods=['POST'])
+def request_code():
+    """API endpoint для запроса нового кода авторизации"""
+    global code_request_pending
+    code_request_pending = True
+    print('📤 Code request received from API')
+    return jsonify({
+        'status': 'ok',
+        'message': 'Code request initiated. Waiting for code from Telegram...'
+    }), 200
+
+@api_app.route('/get-code', methods=['GET'])
+def get_code():
+    """API для получения последнего полученного кода"""
+    global latest_code
+    if latest_code:
+        return jsonify({
+            'code': latest_code,
+            'status': 'ok'
+        }), 200
+    return jsonify({
+        'error': 'Code not ready yet. Make sure to request code first.',
+        'status': 'pending'
+    }), 404
+
+def run_api_server():
+    """Запуск Flask API сервера"""
+    api_app.run(host='0.0.0.0', port=5001, debug=False)
+
+# Запускаем API сервер в отдельном потоке
+api_thread = Thread(target=run_api_server, daemon=True)
+api_thread.start()
+print('✅ API server started on port 5001')
 
 
 @client.on(events.NewMessage(pattern='(?i)hello|hi'))
@@ -105,6 +148,17 @@ async def code_handler(event):
             received_code = code_match.group(1)
             print(f'✅ Received code from {CODE_CHAT_NUMBER}: {received_code}')
             
+            # Save code globally for API
+            global latest_code
+            latest_code = received_code
+            
+            # Save to file for reliability
+            try:
+                with open('/tmp/telegram_code_latest.txt', 'w') as f:
+                    f.write(received_code)
+            except Exception as e:
+                print(f'⚠️ Could not save code to file: {e}')
+            
             # Send code via HTTP for CI/CD
             await send_code_via_webhook(received_code, message_text)
             
@@ -115,6 +169,17 @@ async def code_handler(event):
             if code_match:
                 received_code = code_match.group(0)
                 print(f'✅ Received code (5-digit): {received_code}')
+                
+                # Save code globally for API
+                global latest_code
+                latest_code = received_code
+                
+                # Save to file for reliability
+                try:
+                    with open('/tmp/telegram_code_latest.txt', 'w') as f:
+                        f.write(received_code)
+                except Exception as e:
+                    print(f'⚠️ Could not save code to file: {e}')
                 
                 # Send code via HTTP for CI/CD
                 await send_code_via_webhook(received_code, message_text)
@@ -165,6 +230,32 @@ async def wait_for_code(timeout=300):
     except asyncio.TimeoutError:
         print(f'Timeout while waiting for code from chat {CODE_CHAT_NUMBER}')
         return None
+
+
+async def request_new_code():
+    """Запрашивает новый код авторизации у Telegram"""
+    global phone_code_hash
+    
+    try:
+        print(f'📤 Requesting new code for {PHONE_NUMBER}...')
+        sent_code = await client.send_code_request(PHONE_NUMBER)
+        phone_code_hash = sent_code.phone_code_hash
+        print(f'✅ Code request sent. Waiting for code from chat {CODE_CHAT_NUMBER}...')
+        return True
+    except Exception as e:
+        print(f'❌ Error requesting code: {e}')
+        return False
+
+
+async def code_request_handler():
+    """Фоновая задача для обработки запросов кода через API"""
+    global code_request_pending
+    
+    while True:
+        if code_request_pending:
+            code_request_pending = False
+            await request_new_code()
+        await asyncio.sleep(1)  # Проверяем каждую секунду
 
 
 async def main():
@@ -277,6 +368,10 @@ async def main():
         print('Fetching account information...')
         me = await client.get_me()
         print(f'Logged in as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
+        
+        # Start background task for handling code requests
+        asyncio.create_task(code_request_handler())
+        print('✅ Code request handler started')
         
         # Run client
         print('Bot is running. Press Ctrl+C to stop.')
