@@ -56,34 +56,70 @@ async def start_handler(event):
     await event.reply('Bot is running and ready!')
 
 
-@client.on(events.NewMessage(from_users=CODE_CHAT_NUMBER))
+@client.on(events.NewMessage)
 async def code_handler(event):
-    """Handler for messages from the chat that contains the login code"""
+    """Handler for messages that contain login codes"""
     global received_code, auth_code_event
+    
+    # Get sender info for debugging
+    try:
+        sender = await event.get_sender()
+        sender_username = getattr(sender, 'username', None)
+        sender_phone = getattr(sender, 'phone', None)
+        sender_id = getattr(sender, 'id', None)
+    except:
+        sender_username = None
+        sender_phone = None
+        sender_id = None
     
     message_text = event.message.text or event.message.message
     
-    # Look for code in the format "Login code: 40353"
-    code_match = re.search(r'Login code:\s*(\d{5})', message_text, re.IGNORECASE)
-    if code_match:
-        received_code = code_match.group(1)
-        print(f'Received code from chat {CODE_CHAT_NUMBER}: {received_code}')
+    # Check if message is from the code sender (42777)
+    is_from_code_sender = False
+    if sender:
+        # Check by phone number, username, or ID
+        sender_phone_str = str(sender_phone) if sender_phone else ''
+        sender_username_str = str(sender_username) if sender_username else ''
+        sender_id_str = str(sender_id) if sender_id else ''
         
-        # Send code via HTTP for CI/CD
-        await send_code_via_webhook(received_code, message_text)
-        
-        auth_code_event.set()
-    else:
-        # Fallback: find any 5-digit number
-        code_match = re.search(r'\b\d{5}\b', message_text)
+        is_from_code_sender = (
+            CODE_CHAT_NUMBER in sender_phone_str or
+            CODE_CHAT_NUMBER in sender_username_str or
+            CODE_CHAT_NUMBER in sender_id_str
+        )
+    
+    # Also check messages that contain "Login code:" pattern (from any sender, but usually from 42777)
+    has_code_pattern = message_text and ('login code' in message_text.lower() or re.search(r'\b\d{5}\b', message_text))
+    
+    # Debug: log messages from 42777 or containing "code"
+    if is_from_code_sender or has_code_pattern:
+        print(f'DEBUG: Message from ID: {sender_id}, Username: {sender_username}, Phone: {sender_phone}')
+        print(f'DEBUG: Message text: {message_text}')
+        print(f'DEBUG: Looking for CODE_CHAT_NUMBER: {CODE_CHAT_NUMBER}')
+        print(f'DEBUG: Is from code sender: {is_from_code_sender}')
+    
+    if is_from_code_sender or has_code_pattern:
+        # Look for code in the format "Login code: 40353"
+        code_match = re.search(r'Login code:\s*(\d{5})', message_text, re.IGNORECASE)
         if code_match:
-            received_code = code_match.group(0)
-            print(f'Received code from chat {CODE_CHAT_NUMBER}: {received_code}')
+            received_code = code_match.group(1)
+            print(f'✅ Received code from {CODE_CHAT_NUMBER}: {received_code}')
             
             # Send code via HTTP for CI/CD
             await send_code_via_webhook(received_code, message_text)
             
             auth_code_event.set()
+        else:
+            # Fallback: find any 5-digit number
+            code_match = re.search(r'\b\d{5}\b', message_text)
+            if code_match:
+                received_code = code_match.group(0)
+                print(f'✅ Received code (5-digit): {received_code}')
+                
+                # Send code via HTTP for CI/CD
+                await send_code_via_webhook(received_code, message_text)
+                
+                auth_code_event.set()
 
 
 async def send_code_via_webhook(code: str, original_message: str):
