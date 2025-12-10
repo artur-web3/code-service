@@ -138,18 +138,54 @@ async def main():
     print('Connecting to Telegram...')
     
     try:
+        # Disconnect if already connected
+        if client.is_connected():
+            print('Disconnecting existing connection...')
+            try:
+                await client.disconnect()
+            except:
+                pass
+        
         # Connect to Telegram
-        await client.connect()
+        print('Establishing connection...')
+        try:
+            # Try to connect with a timeout
+            await asyncio.wait_for(client.connect(), timeout=30.0)
+            if not client.is_connected():
+                print('Connection failed - client is not connected')
+                return
+            print('Connected successfully!')
+        except asyncio.TimeoutError:
+            print('Connection timeout after 30 seconds!')
+            print('Possible issues:')
+            print('  - Check your internet connection')
+            print('  - Telegram might be blocked in your region')
+            print('  - Try using a VPN if needed')
+            return
+        except Exception as e:
+            print(f'Connection error: {e}')
+            import traceback
+            traceback.print_exc()
+            return
         
         # Check if client is already authorized
-        if not await client.is_user_authorized():
+        print('Checking authorization status...')
+        is_authorized = await client.is_user_authorized()
+        
+        if not is_authorized:
             print(f'Authorization required. Waiting for code from chat {CODE_CHAT_NUMBER}...')
             
             # Request code
             try:
-                sent_code = await client.send_code_request(PHONE_NUMBER)
-                phone_code_hash = sent_code.phone_code_hash
-                print(f'Code sent to number {PHONE_NUMBER}')
+                print(f'Requesting login code for {PHONE_NUMBER}...')
+                try:
+                    sent_code = await asyncio.wait_for(client.send_code_request(PHONE_NUMBER), timeout=30)
+                    phone_code_hash = sent_code.phone_code_hash
+                    print(f'Code sent to number {PHONE_NUMBER}')
+                except asyncio.TimeoutError:
+                    print('Timeout while requesting code. Check your internet connection.')
+                    await client.disconnect()
+                    return
                 
                 # If code is provided via LOGIN_CODE env (useful for Railway/CI)
                 if LOGIN_CODE:
@@ -202,10 +238,12 @@ async def main():
             print('Already authorized!')
         
         # Get account info
+        print('Fetching account information...')
         me = await client.get_me()
         print(f'Logged in as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
         
         # Run client
+        print('Bot is running. Press Ctrl+C to stop.')
         await client.run_until_disconnected()
     except Exception as e:
         print(f'Error: {e}')
