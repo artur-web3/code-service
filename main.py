@@ -150,18 +150,33 @@ async def main():
                 sent_code = await client.send_code_request(PHONE_NUMBER)
                 phone_code_hash = sent_code.phone_code_hash
                 print(f'Code sent to number {PHONE_NUMBER}')
-                print(f'Waiting for code from chat {CODE_CHAT_NUMBER}...')
                 
                 # If code is provided via LOGIN_CODE env (useful for Railway/CI)
                 if LOGIN_CODE:
                     code = LOGIN_CODE.strip()
                     print('Using code from environment variable LOGIN_CODE')
                 else:
-                    # Wait for code from chat
-                    code = await wait_for_code(timeout=300)
+                    # Try to get code from chat first, with a short timeout
+                    print(f'Waiting for code from chat {CODE_CHAT_NUMBER} (or press Enter to enter manually)...')
+                    try:
+                        code = await asyncio.wait_for(wait_for_code(timeout=30), timeout=30)
+                    except asyncio.TimeoutError:
+                        code = None
+                    
+                    # If no code from chat, ask user to enter manually
+                    if not code:
+                        print('No code received from chat. Please enter it manually.')
+                        # Use asyncio.to_thread for non-blocking input (Python 3.9+)
+                        # Fallback to regular input for older Python versions
+                        try:
+                            code = await asyncio.to_thread(input, 'Enter the login code: ')
+                        except AttributeError:
+                            # Python < 3.9 fallback
+                            code = input('Enter the login code: ')
+                        code = code.strip()
                 
                 if not code:
-                    print('Failed to receive code. Stopping.')
+                    print('No code provided. Stopping.')
                     await client.disconnect()
                     return
                 
